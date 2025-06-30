@@ -1,0 +1,194 @@
+---
+title: "Influenza A H7N9 in China, 2013"
+format: 
+  dashboard:
+    embed-resources: true
+theme: lux
+---
+
+```{r}
+# Load packages 
+if(!require(pacman)) install.packages("pacman")
+pacman::p_load(tidyverse, outbreaks, bslib, bsicons, shiny, 
+               rgeoboundaries, plotly, htmltools, reactable)
+
+
+# view data
+#head(outbreaks::fluH7N9_china_2013)
+```
+
+
+
+```{r}
+# Calculating total number of influenza cases in 2013
+influenza_cases <- fluH7N9_china_2013 %>% 
+  count()
+
+# Calculating total deaths in 2013
+influenza_deaths <- 
+  fluH7N9_china_2013 %>%
+  filter(outcome == "Death") %>% 
+  count()
+
+# Calculating total hospitalizations in 2013
+influenza_hospitalizations <- 
+  fluH7N9_china_2013 %>%
+  filter(!is.na(date_of_hospitalisation)) %>% 
+  count()
+
+total_cases <- influenza_cases
+total_deaths <-  influenza_deaths
+total_hospitalized <- influenza_hospitalizations
+```
+
+```{r}
+influenzacases_province <- fluH7N9_china_2013 %>% 
+  group_by(province) %>% 
+  count() %>%
+  arrange(desc(n)) %>% 
+  mutate(tooltip_label = paste(province, 
+                               n, 
+                               sep = ": ")) %>% 
+  ggplot(aes(y = reorder(province, n), 
+             x = n, 
+             fill = n, 
+             text = tooltip_label)) + 
+  geom_col() + 
+  geom_text(aes(label = n), 
+            color = "red"
+            ) + 
+  labs(y = "Province", 
+       x = "Number of Influenza Cases") + 
+  theme(legend.position = "none")
+
+influenzacases_province <- 
+  ggplotly(influenzacases_province, tooltip = "text")
+```
+
+
+```{r}
+### MAP OF CASES PER PROVINCE
+province_summary <- fluH7N9_china_2013 %>% 
+  group_by(province) %>% 
+  summarise(total_cases = n()) 
+
+china_map <- rgeoboundaries::gb_adm1("china")
+
+# Check the keys to see if join will be successful
+# setdiff(province_summary$province, china_map$shapeName)
+# setdiff(china_map$shapeName, province_summary$province)
+# Some work to be done to harmonize these
+
+china_map <- china_map %>%
+  # Remove the strings Province, Municipality and Autonomous Region 
+  # to allow matching
+  mutate(province = str_trim(
+    str_remove(shapeName, "Province|Municipality|Autonomous Region")
+  ))
+
+# Check if join will work fine
+# setdiff(province_summary$province, china_map$province)
+
+# Fix Guangdong, which based on a quick Google is actually Guangzhou
+china_map <- china_map %>% 
+  mutate(province = if_else(province == "Guangzhou", "Guangdong", province)) 
+  
+# Check again
+# setdiff(province_summary$province, china_map$province)
+
+# Now join
+china_map_joined <- 
+  left_join(china_map, province_summary, by = "province") %>% 
+  # Create tooltip label 
+  mutate(tooltip_label = paste0(province, ": ", total_cases))
+
+china_map_plot <- ggplot(china_map_joined) +
+  geom_sf(aes(fill = total_cases, text = tooltip_label)) + 
+  theme_void() +
+  labs(fill = "Number of Cases") + 
+  theme(legend.position = "none")
+
+china_map_plot_ggplotly <- 
+  ggplotly(china_map_plot, tooltip = "text")
+```
+
+
+
+# HOME
+
+## Row 1 {height=30%}
+
+```{r}
+value_box(
+  title = "Total Number of Influenza Cases",
+  value = influenza_cases,
+  showcase = bsicons::bs_icon("virus"),
+  theme = value_box_theme(bg = "#eb7734")
+)
+```
+
+```{r}
+value_box(
+  title = "Total Deaths",
+  value = influenza_deaths,
+  showcase = bsicons::bs_icon("person-x-fill"),
+  theme = value_box_theme(bg = "#d6580f")
+)
+```
+
+```{r}
+value_box(
+  title = "Total Hospitalizations",
+  value = influenza_hospitalizations,
+  showcase = bsicons::bs_icon("hospital-fill"),
+  theme = value_box_theme(bg = "#d68d0f")
+)
+```
+
+## Row 2 {height=70%}
+
+### {width=40%}
+
+```{r title = "Influenza Cases by Province"}
+influenzacases_province
+```
+
+### {width=60%}
+
+```{r title = "Map of Cases by Province"}
+china_map_plot_ggplotly
+```
+
+
+# DOWNLOAD DATA
+
+```{r}
+htmltools::browsable(
+  tagList(
+    reactable(outbreaks::fluH7N9_china_2013, 
+              elementId = "Influenza-Outbreak-in-China-table", 
+              searchable = T, 
+              filterable = T), 
+    
+tags$button("Download as CSV", 
+            onclick = "Reactable.downloadDataCSV('Influenza-Outbreak-in-China-table')")
+  )
+)
+```
+
+
+# ABOUT
+
+This dashboard analyzes data on the 2013 influenza A H7N9 outbreak in China.
+
+Key points:
+
+- There were `r total_cases` total reported cases
+- `r total_hospitalized` cases were hospitalized  
+- `r total_deaths` deaths occurred
+- The most affected provinces were Zhejiang, Shanghai and Jiangsu
+
+The data is sourced from a Dryad dataset by Kucharski et al (2014) who collated case details from various reports. This dashboard provides an interactive visualization of the outbreak's geographical distribution and key statistics.
+
+Reference: 
+Kucharski, A., Mills, H., Pinsent, A., Fraser, C., Kerkhove, M. V., Donnelly, C. A., & Riley, S. (2014). Distinguishing between reservoir exposure and human-to-human transmission for emerging pathogens using case onset data. *PLOS Currents Outbreaks*, 1. https://doi.org/10.1371/currents.outbreaks.e1473d9bfc99d080ca242139a06c455f
